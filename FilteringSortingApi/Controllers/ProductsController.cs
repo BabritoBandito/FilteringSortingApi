@@ -18,69 +18,93 @@ namespace FilteringSortingApi.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetProducts(
-            [FromQuery] int? categoryId,
-            [FromQuery] string categoryName,
-            [FromQuery] decimal? minPrice,
-            [FromQuery] decimal? maxPrice,
-            [FromQuery] bool? inStock,
-            [FromQuery] string sortBy = "Name",
-            [FromQuery] string sortOrder = "asc")
+        public async Task<IActionResult> GetProducts([FromQuery] ProductFilter filter)
         {
             IQueryable<Product> query = _context.Products
                 .Include(p => p.Category);
 
-            // Фильтрация по категории
-            if (categoryId.HasValue)
+            if (filter.CategoryId.HasValue)
             {
-                query = query.Where(p => p.CategoryId == categoryId.Value);
+                query = query.Where(p => p.CategoryId == filter.CategoryId.Value);
             }
-            else if (!string.IsNullOrEmpty(categoryName))
+            else if (!string.IsNullOrEmpty(filter.CategoryName))
             {
-                query = query.Where(p => p.Category.Name == categoryName);
-            }
-
-            // Фильтрация по цене
-            if (minPrice.HasValue)
-            {
-                query = query.Where(p => p.Price >= minPrice.Value);
+                query = query.Where(p => p.Category.Name == filter.CategoryName);
             }
 
-            if (maxPrice.HasValue)
+            if (filter.MinPrice.HasValue)
             {
-                query = query.Where(p => p.Price <= maxPrice.Value);
+                query = query.Where(p => p.Price >= filter.MinPrice.Value);
             }
 
-            // Фильтрация по наличию
-            if (inStock.HasValue)
+            if (filter.MaxPrice.HasValue)
             {
-                query = query.Where(p => p.InStock == inStock.Value);
+                query = query.Where(p => p.Price <= filter.MaxPrice.Value);
             }
 
-            // Сортировка
-            if (!string.IsNullOrEmpty(sortBy))
+            if (filter.InStock.HasValue)
             {
-                string direction = sortOrder.Equals("desc", StringComparison.OrdinalIgnoreCase) ? "desc" : "asc";
-                
-                // Поддержка сортировки по полям связанной сущности
-                if (sortBy.Contains("Category."))
+                query = query.Where(p => p.InStock == filter.InStock.Value);
+            }
+
+            if (!string.IsNullOrEmpty(filter.NameContains))
+            {
+                query = query.Where(p => p.Name.Contains(filter.NameContains));
+            }
+
+            if (filter.CreatedAfter.HasValue)
+            {
+                query = query.Where(p => p.CreatedDate >= filter.CreatedAfter.Value);
+            }
+
+            if (filter.CreatedBefore.HasValue)
+            {
+                query = query.Where(p => p.CreatedDate <= filter.CreatedBefore.Value);
+            }
+
+            if (!string.IsNullOrEmpty(filter.SortBy))
+            {
+                string direction = filter.SortOrder.Equals("desc", StringComparison.OrdinalIgnoreCase)
+                    ? "desc"
+                    : "asc";
+
+                query = filter.SortBy switch
                 {
-                    var catNameSort = sortBy.Split(".")[1];
-                    query = query.OrderBy(p => p.Category.Name == catNameSort);
-                }
-                else
-                {
-                    query = sortBy switch {
-                        "Price" => query.OrderBy(p => p.Price),
-                        "CreatedDate" => query.OrderBy(p => p.CreatedDate),
-                        "Name" => query.OrderBy(p => p.Name),
-                        _ => query
-                    };
-                }
+                    "Price" => direction == "asc"
+                        ? query.OrderBy(p => p.Price)
+                        : query.OrderByDescending(p => p.Price),
+                    "CreatedDate" => direction == "asc"
+                        ? query.OrderBy(p => p.CreatedDate)
+                        : query.OrderByDescending(p => p.CreatedDate),
+                    "Name" => direction == "asc"
+                        ? query.OrderBy(p => p.Name)
+                        : query.OrderByDescending(p => p.Name),
+                    "Category.Name" => direction == "asc"
+                        ? query.OrderBy(p => p.Category.Name)
+                        : query.OrderByDescending(p => p.Category.Name),
+                    _ => query
+                };
             }
 
             var products = await query.ToListAsync();
-            return Ok(products);
+
+            var result = products.Select(p => new ProductDto
+            {
+                Id = p.Id,
+                Name = p.Name,
+                Price = p.Price,
+                CreatedDate = p.CreatedDate,
+                InStock = p.InStock,
+                Category = p.Category == null ? new CategoryDto() : new CategoryDto
+                {
+                    Id = p.Category.Id,
+                    Name = p.Category.Name,
+                    Description = p.Category.Description
+                }
+            });
+
+            return Ok(result);
         }
+
     }
 }
